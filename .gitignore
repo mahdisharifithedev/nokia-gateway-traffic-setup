@@ -1,0 +1,5 @@
+sysupgrade.tgz
+sysupgrade_backup.tgz
+
+staging/usr/bin/*
+!staging/usr/bin/README.md
