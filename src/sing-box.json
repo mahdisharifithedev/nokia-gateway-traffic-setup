@@ -1,6 +1,6 @@
 {
   "log": {
-    "level": "info",
+    "level": "error",
     "output": "/tmp/singbox.log"
   },
   "dns": {
@@ -25,7 +25,7 @@
     ],
     "rules": [
       {
-        "domain": ["domain.com"],
+        "domain": ["THE_DOMAIN"],
         "server": "dns-direct"
       },
       {
@@ -90,7 +90,7 @@
         "action": "hijack-dns"
       },
       {
-        "domain": ["domain.com"],
+        "domain": ["THE_DOMAIN"],
         "outbound": "direct"
       },
       {
@@ -102,8 +102,8 @@
           "192.168.0.0/16",
           "10.0.0.0/8",
           "172.16.0.0/12",
-          "<domain-ipv4>/32",
-          "<domain-ipv6>/128"
+          "DOMAIN_IPV4/32",
+          "DOMAIN_IPV6/128"
         ],
         "outbound": "direct"
       },

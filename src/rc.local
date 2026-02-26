@@ -3,12 +3,6 @@
 
 cp /data/sysupgrade_backup.tgz /data/sysupgrade.tgz
 
-uci add firewall rule
-uci set firewall.@rule[-1].name='Allow-Direct-SOCKS-8080'
-uci set firewall.@rule[-1].src='lan'
-uci set firewall.@rule[-1].dest_port='8080'
-uci set firewall.@rule[-1].proto='tcp udp'
-uci set firewall.@rule[-1].target='ACCEPT'
 # Enable Software Flow Offloading
 uci set firewall.@defaults[0].flow_offloading='1'
 uci set firewall.@defaults[0].flow_offloading_hw='0'
@@ -18,8 +12,6 @@ uci commit firewall
 # Wait for the network be completely up
 sleep 20
 
-echo "<domain-ip> domain.com" >> /etc/hosts
-
 iptables -I FORWARD -o tun0 -j ACCEPT
 iptables -I FORWARD -i tun0 -j ACCEPT
 ip6tables -I FORWARD -o tun0 -j ACCEPT
@@ -27,8 +19,8 @@ ip6tables -I FORWARD -i tun0 -j ACCEPT
 
 sysctl -w net.ipv4.tcp_fastopen=0
 sysctl -w net.ipv4.tcp_slow_start_after_idle=0
-# min=4KB def=256KB max=64MB
-sysctl -w net.ipv4.tcp_rmem="4096 262144 67108864"
+# min=4KB def=128KB max=64MB
+sysctl -w net.ipv4.tcp_rmem="4096 131072 67108864"
 
 /usr/bin/naive /etc/naive/config.json > /tmp/naive-stdout.log 2>&1 &
 sleep 5
