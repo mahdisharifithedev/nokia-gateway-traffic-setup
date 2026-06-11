@@ -1,7 +1,7 @@
 {
 	"log": {
 		"level": "error",
-		"output": "/tmp/singbox.log"
+		"output": "/tmp/sing-box.log"
 	},
 	"dns": {
 		"servers": [
@@ -12,11 +12,6 @@
 				"detour": "out-proxy"
 			},
 			{
-				"tag": "dns-direct",
-				"type": "udp",
-				"server": "10.202.10.10"
-			},
-			{
 				"tag": "dns-fakeip",
 				"type": "fakeip",
 				"inet4_range": "198.18.0.0/15",
@@ -24,13 +19,6 @@
 			}
 		],
 		"rules": [
-			{
-				"inbound": [
-					"in-direct-socks",
-					"in-direct-http"
-				],
-				"server": "dns-direct"
-			},
 			{
 				"query_type": [
 					"A",
@@ -67,6 +55,14 @@
 		}
 	],
 	"outbounds": [
+		{
+			"outbounds": [],
+			"tolerance": 50,
+			"type": "urltest",
+			"interval": "30s",
+			"tag": "template-urltest",
+			"url": "https://cp.cloudflare.com/generate_204"
+		},
 		{
 			"type": "vless",
 			"tag": "out-proxy",
@@ -108,8 +104,8 @@
 			"tag": "direct",
 			"tcp_fast_open": false,
 			"domain_resolver": {
-				"server": "dns-direct",
-				"strategy": "prefer_ipv4"
+				"server": "dns-proxy",
+				"strategy": "ipv4_only"
 			}
 		}
 	],
@@ -127,6 +123,7 @@
 					"192.168.0.0/16",
 					"10.0.0.0/8",
 					"172.16.0.0/12",
+					"85.15.1.14/32",
 					"THE_CLEAN_CF_IP/32"
 				],
 				"outbound": "direct"
@@ -147,5 +144,12 @@
 		],
 		"default_domain_resolver": "dns-proxy",
 		"auto_detect_interface": true
+	},
+	"experimental": {
+		"cache_file": {
+			"enabled": true,
+			"store_fakeip": true,
+			"path": "/tmp/sing-box-cache.db"
+		}
 	}
 }
