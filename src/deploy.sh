@@ -8,12 +8,12 @@ set user "SSH_USER_NAME"
 set password "SSH_USER_PASSWORD"
 set rootpass "SSH_ROOT_PASSWORD"
 
-spawn ssh $user@$ip
+spawn ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $user@$ip
 # It checks for "assword:" in case of capital P or lowercase p
 expect "*assword:*"
 send "$password\r"
 # Wait for standard user prompt (usually ends in $ or >)
-expect -re {[$>]}
+expect -re {[$ >]}
 
 send "su -\r"
 expect "*assword:*"
@@ -23,11 +23,16 @@ expect "*#*"
 
 send "rm -f /data/sysupgrade_backup.tgz /data/sysupgrade.tgz\r"
 expect "*#*"
-send "wget -O /data/sysupgrade_backup.tgz http://$localip:$port/sysupgrade_backup.tgz\r"
+send "wget -q -O /data/sysupgrade_backup.tgz http://$localip:$port/sysupgrade_backup.tgz\r"
 expect "*#*"
 send "cp /data/sysupgrade_backup.tgz /data/sysupgrade.tgz\r"
 expect "*#*"
 send "chown root:root /data/sysupgrade_backup.tgz /data/sysupgrade.tgz\r"
+expect "*#*"
+# Ensuring the flush with sync
+send "sync /data/sysupgrade_backup.tgz /data/sysupgrade.tgz\r"
+expect "*#*"
+send "sleep 2\r"
 expect "*#*"
 send "ls -lh /data\r"
 expect "*#*"
@@ -36,7 +41,7 @@ send "reboot\r"
 expect "*#*"
 # Exit su
 send "exit\r"
-expect -re {[$>]}
+expect -re {[$ >]}
 # Exit ssh
 send "exit\r"
 expect eof

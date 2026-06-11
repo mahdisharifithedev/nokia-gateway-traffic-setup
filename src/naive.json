@@ -1,5 +1,0 @@
-{
-  "listen": ["socks://0.0.0.0:1080"],
-  "proxy": "https://NAIVE_USER:NAIVE_PASSWORD@THE_DOMAIN",
-  "log": "/tmp/naive.log"
-}

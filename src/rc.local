@@ -3,14 +3,11 @@
 
 cp /data/sysupgrade_backup.tgz /data/sysupgrade.tgz
 
-# Enable Software Flow Offloading
+sleep 20
+
 uci set firewall.@defaults[0].flow_offloading='1'
 uci set firewall.@defaults[0].flow_offloading_hw='0'
 uci commit firewall
-/etc/init.d/firewall reload
-
-# Wait for the network be completely up
-sleep 20
 
 iptables -I FORWARD -o tun0 -j ACCEPT
 iptables -I FORWARD -i tun0 -j ACCEPT
@@ -18,12 +15,11 @@ ip6tables -I FORWARD -o tun0 -j ACCEPT
 ip6tables -I FORWARD -i tun0 -j ACCEPT
 
 sysctl -w net.ipv4.tcp_fastopen=0
+sysctl -w net.core.default_qdisc=fq_codel
 sysctl -w net.ipv4.tcp_slow_start_after_idle=0
-# min=4KB def=128KB max=64MB
-sysctl -w net.ipv4.tcp_rmem="4096 131072 67108864"
+sysctl -w net.ipv4.tcp_rmem="4096 87380 4194304"
+sysctl -w net.ipv4.tcp_wmem="4096 16384 2097152"
 
-/usr/bin/naive /etc/naive/config.json > /tmp/naive-stdout.log 2>&1 &
-sleep 5
-/usr/bin/sing-box run -c /etc/sing-box/config.json > /tmp/singbox-stdout.log 2>&1 &
+/usr/bin/sing-box run -c /etc/sing-box/config.json &
 
 exit 0

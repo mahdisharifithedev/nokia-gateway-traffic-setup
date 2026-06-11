@@ -2,225 +2,193 @@
 set -e
 
 PORT=8000
-SINGBOX_VERSION="v1.12.22"
-NAIVE_VERSION="v143.0.7499.109-2"
+SINGBOX_VERSION="v1.13.13"
 HOST_BIN_DIR="build/host"
 BIN_DIR="build/staging/usr/bin"
 VARS_FILE="build/user_vars.env"
-LOCAL_IP=$( (ip -4 addr show 2>/dev/null || ifconfig 2>/dev/null) | grep -o '192\.168\.[0-9]\{1,3\}\.[0-9]\{1,3\}' | head -n 1 )
+LOCAL_IP=$( (ip -4 addr show 2>/dev/null || ifconfig 2>/dev/null) | grep -o '192\.168\.[0-9]\{1,3\}\.[0-9]\{1,3\}' | head -n 1)
 
-if ! command -v expect >/dev/null 2>&1; then
-  echo "Error: expect is not installed."
-  exit 1
-fi
-if ! command -v node >/dev/null 2>&1; then
-  echo "Error: node is not installed. Please install Node.js."
-  exit 1
-fi
-if ! command -v npm >/dev/null 2>&1; then
-  echo "Error: npm is not installed. Please install Node.js/npm."
-  exit 1
-fi
-if ! command -v http-server >/dev/null 2>&1; then
-  echo "Error: http-server is not installed globally."
-  echo "Please run: npm install -g http-server@latest"
-  exit 1
-fi
+RUN_DEPLOY=true
+for arg in "$@"; do
+    if [[ "$arg" == "--no-deploy" ]]; then
+        RUN_DEPLOY=false
+        break
+    fi
+done
+
+# Prerequisite Checks
+for cmd in python3 expect go git upx; do
+    if ! command -v $cmd >/dev/null 2>&1; then
+        echo "Error: $cmd is not installed."
+        exit 1
+    fi
+done
 
 HOST_ARCH=$(uname -m)
 HOST_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 if [[ "$HOST_ARCH" == "x86_64" || "$HOST_ARCH" == "amd64" ]]; then
-  SB_ARCH="amd64"
-  NAIVE_ARCH="x64"
+    SB_ARCH="amd64"
 elif [[ "$HOST_ARCH" == "aarch64" || "$HOST_ARCH" == "arm64" ]]; then
-  SB_ARCH="arm64"
-  NAIVE_ARCH="arm64"
+    SB_ARCH="arm64"
 else
-  echo "Unsupported host architecture: $HOST_ARCH"
-  exit 1
+    echo "Unsupported host architecture: $HOST_ARCH"
+    exit 1
 fi
 
 if [[ "$HOST_OS" == "darwin" ]]; then
-  SB_OS="darwin"
-  NAIVE_OS="mac"
+    SB_OS="darwin"
 elif [[ "$HOST_OS" == "linux" ]]; then
-  SB_OS="linux"
-  NAIVE_OS="linux"
+    SB_OS="linux"
 elif [[ "$HOST_OS" == "freebsd" || "$HOST_OS" == "openbsd" ]]; then
-  SB_OS="freebsd"
-  NAIVE_OS="linux" # NaiveProxy has no official BSD release; handled below
+    SB_OS="freebsd"
 else
-  echo "Unsupported host OS: $HOST_OS"
-  exit 1
+    echo "Unsupported host OS: $HOST_OS"
+    exit 1
 fi
 
-mkdir -p build/staging/{etc/naive,etc/sing-box,usr/bin} "$HOST_BIN_DIR"
+mkdir -p build/staging/{etc/sing-box,usr/bin} "$HOST_BIN_DIR"
 
 if [[ -f "$VARS_FILE" ]]; then
-  source "$VARS_FILE"
+    source "$VARS_FILE"
 else
-  read -p "Enter DOMAIN_IPV4: " DOMAIN_IPV4
-  read -p "Enter DOMAIN_IPV6: " DOMAIN_IPV6
-  read -p "Enter THE_DOMAIN: " THE_DOMAIN
-  read -p "Enter NAIVE_USER: " NAIVE_USER
-  read -p "Enter NAIVE_PASSWORD: " NAIVE_PASSWORD
-  read -p "Enter SSH_USER_NAME: " SSH_USER_NAME
-  read -p "Enter SSH_USER_PASSWORD: " SSH_USER_PASSWORD
-  read -p "Enter SSH_ROOT_PASSWORD: " SSH_ROOT_PASSWORD
+    read -p "Enter THE_CLEAN_CF_IPS: " THE_CLEAN_CF_IPS
+    read -p "Enter THE_SNI: " THE_SNI
+    read -p "Enter THE_UUID: " THE_UUID
+    read -p "Enter SSH_USER_NAME: " SSH_USER_NAME
+    read -p "Enter SSH_USER_PASSWORD: " SSH_USER_PASSWORD
+    read -p "Enter SSH_ROOT_PASSWORD: " SSH_ROOT_PASSWORD
 
-  # printf %q to safely escape variables for future sourcing
-  {
-    printf "DOMAIN_IPV4=%q\n" "$DOMAIN_IPV4"
-    printf "DOMAIN_IPV6=%q\n" "$DOMAIN_IPV6"
-    printf "THE_DOMAIN=%q\n" "$THE_DOMAIN"
-    printf "NAIVE_USER=%q\n" "$NAIVE_USER"
-    printf "NAIVE_PASSWORD=%q\n" "$NAIVE_PASSWORD"
-    printf "SSH_USER_NAME=%q\n" "$SSH_USER_NAME"
-    printf "SSH_USER_PASSWORD=%q\n" "$SSH_USER_PASSWORD"
-    printf "SSH_ROOT_PASSWORD=%q\n" "$SSH_ROOT_PASSWORD"
-  } > "$VARS_FILE"
+    # printf %q to safely escape variables for future sourcing
+    {
+        printf "THE_CLEAN_CF_IPS=%q\n" "$THE_CLEAN_CF_IPS"
+        printf "THE_SNI=%q\n" "$THE_SNI"
+        printf "THE_UUID=%q\n" "$THE_UUID"
+        printf "SSH_USER_NAME=%q\n" "$SSH_USER_NAME"
+        printf "SSH_USER_PASSWORD=%q\n" "$SSH_USER_PASSWORD"
+        printf "SSH_ROOT_PASSWORD=%q\n" "$SSH_ROOT_PASSWORD"
+    } >"$VARS_FILE"
 fi
-chmod 600 $VARS_FILE
+chmod 600 "$VARS_FILE"
 
 escape() {
-  printf '%s' "$1" | sed 's/[|\\&]/\\&/g'
+    printf '%s' "$1" | sed 's/[|\\&]/\\&/g'
 }
 
 template_copy() {
-  sed -e "s|DOMAIN_IPV4|$(escape "$DOMAIN_IPV4")|g" \
-      -e "s|DOMAIN_IPV6|$(escape "$DOMAIN_IPV6")|g" \
-      -e "s|THE_DOMAIN|$(escape "$THE_DOMAIN")|g" \
-      -e "s|NAIVE_USER|$(escape "$NAIVE_USER")|g" \
-      -e "s|NAIVE_PASSWORD|$(escape "$NAIVE_PASSWORD")|g" \
-      -e "s|HTTP_PORT|$(escape "$PORT")|g" \
-      -e "s|LOCAL_IP|$(escape "$LOCAL_IP")|g" \
-      -e "s|SSH_USER_NAME|$(escape "$SSH_USER_NAME")|g" \
-      -e "s|SSH_USER_PASSWORD|$(escape "$SSH_USER_PASSWORD")|g" \
-      -e "s|SSH_ROOT_PASSWORD|$(escape "$SSH_ROOT_PASSWORD")|g" \
-      "$1" > "$2"
+    sed -e "s|THE_CLEAN_CF_IPS|$(escape "$THE_CLEAN_CF_IPS")|g" \
+        -e "s|THE_SNI|$(escape "$THE_SNI")|g" \
+        -e "s|THE_UUID|$(escape "$THE_UUID")|g" \
+        -e "s|HTTP_PORT|$(escape "$PORT")|g" \
+        -e "s|LOCAL_IP|$(escape "$LOCAL_IP")|g" \
+        -e "s|SSH_USER_NAME|$(escape "$SSH_USER_NAME")|g" \
+        -e "s|SSH_USER_PASSWORD|$(escape "$SSH_USER_PASSWORD")|g" \
+        -e "s|SSH_ROOT_PASSWORD|$(escape "$SSH_ROOT_PASSWORD")|g" \
+        "$1" >"$2"
 }
 
-download_naive() {
-  if [[ ! -f "$BIN_DIR/naive" ]]; then
-    local filename="naiveproxy-${NAIVE_VERSION}-openwrt-aarch64_generic-static"
-    local url="https://github.com/klzgrad/naiveproxy/releases/download/${NAIVE_VERSION}/${filename}.tar.xz"
-    
-    echo "Downloading OpenWrt NaiveProxy..."
-    mkdir -p tmp_naive
-    curl -fL -# -o tmp_naive/naive.tar.xz "$url"
-    tar -xf tmp_naive/naive.tar.xz -C tmp_naive
-    mv "tmp_naive/${filename}/naive" "$BIN_DIR/naive"
-    rm -rf tmp_naive
-  fi
-}
+build_singbox_openwrt() {
+    if [[ ! -f "$BIN_DIR/sing-box" ]]; then
+        echo "Building OpenWrt sing-box from source ($SINGBOX_VERSION)..."
 
-download_singbox() {
-  if [[ ! -f "$BIN_DIR/sing-box" ]]; then
-    local ver="${SINGBOX_VERSION#v}"
-    local filename="sing-box_${ver}_openwrt_aarch64_generic.ipk"
-    local url="https://github.com/SagerNet/sing-box/releases/download/${SINGBOX_VERSION}/${filename}"
-    
-    echo "Downloading OpenWrt sing-box..."
-    mkdir -p tmp_singbox
-    curl -fL -# -o tmp_singbox/sing-box.ipk "$url"
-    tar -xf tmp_singbox/sing-box.ipk -C tmp_singbox
-    tar -xf tmp_singbox/data.tar.* -C tmp_singbox
-    mv tmp_singbox/usr/bin/sing-box "$BIN_DIR/sing-box"
-    rm -rf tmp_singbox
-  fi
-}
+        mkdir -p tmp_src
+        if [[ ! -d "tmp_src/sing-box" ]]; then
+            # Clone the exact version specified
+            git clone --branch "$SINGBOX_VERSION" --depth 1 https://github.com/SagerNet/sing-box.git tmp_src/sing-box
+        fi
 
-download_host_naive() {
-  if [[ "$HOST_OS" == "freebsd" || "$HOST_OS" == "openbsd" ]]; then
-    echo "Skipping Host NaiveProxy (no official BSD builds available)."
-    return 0
-  fi
+        local WORK_DIR=$(pwd)
+        cd tmp_src/sing-box
 
-  if [[ ! -f "$HOST_BIN_DIR/naive" ]]; then
-    local filename="naiveproxy-${NAIVE_VERSION}-${NAIVE_OS}-${NAIVE_ARCH}"
-    local url="https://github.com/klzgrad/naiveproxy/releases/download/${NAIVE_VERSION}/${filename}.tar.xz"
-    
-    echo "Downloading Host NaiveProxy for validation..."
-    mkdir -p tmp_host_naive
-    curl -fL -# -o tmp_host_naive/naive.tar.xz "$url"
-    tar -xf tmp_host_naive/naive.tar.xz -C tmp_host_naive
-    mv "tmp_host_naive/${filename}/naive" "$HOST_BIN_DIR/naive"
-    rm -rf tmp_host_naive
-  fi
+        # Tags: with_utls as requested. badlinkname and tfogo_checklinkname0 are MANDATORY for Go 1.23+ compatibility.
+        local TAGS="with_utls,badlinkname,tfogo_checklinkname0"
+
+        # Linker flags: -s (strip symbol table) and -w (strip DWARF debugging info) radically reduce binary size.
+        local LDFLAGS="-X 'internal/godebug.defaultGODEBUG=multipathtcp=0' -checklinkname=0 -s -w"
+
+        echo "Cross-compiling for linux/arm64 (Optimized for Cortex-A55 / ARMv8.2 Crypto)..."
+
+        # Set GOARM64 to target ARMv8.2-A and utilize hardware cryptography (aes, sha1, sha2)
+        export GOARM64="v8.2,crypto"
+
+        # CGO_ENABLED=0 guarantees a static binary. -trimpath removes host filesystem paths.
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v -trimpath -tags "$TAGS" -ldflags "$LDFLAGS" -o "$WORK_DIR/$BIN_DIR/sing-box" ./cmd/sing-box
+
+        echo "Compressing the binary with UPX..."
+        # Use UPX with LZMA compression for maximum file size reduction
+        upx --best --lzma "$WORK_DIR/$BIN_DIR/sing-box"
+
+        cd "$WORK_DIR"
+        rm -rf tmp_src
+    fi
 }
 
 download_host_singbox() {
-  if [[ ! -f "$HOST_BIN_DIR/sing-box" ]]; then
-    local ver="${SINGBOX_VERSION#v}"
-    local filename="sing-box-${ver}-${SB_OS}-${SB_ARCH}"
-    local url="https://github.com/SagerNet/sing-box/releases/download/${SINGBOX_VERSION}/${filename}.tar.gz"
-    
-    echo "Downloading Host sing-box for validation..."
-    mkdir -p tmp_host_singbox
-    curl -fL -# -o tmp_host_singbox/sing-box.tar.gz "$url"
-    tar -xzf tmp_host_singbox/sing-box.tar.gz -C tmp_host_singbox
-    mv "tmp_host_singbox/${filename}/sing-box" "$HOST_BIN_DIR/sing-box"
-    rm -rf tmp_host_singbox
-  fi
+    if [[ ! -f "$HOST_BIN_DIR/sing-box" ]]; then
+        local ver="${SINGBOX_VERSION#v}"
+        local filename="sing-box-${ver}-${SB_OS}-${SB_ARCH}"
+        local url="https://github.com/SagerNet/sing-box/releases/download/${SINGBOX_VERSION}/${filename}.tar.gz"
+
+        echo "Downloading Host sing-box for validation..."
+        mkdir -p tmp_host_singbox
+        curl -fL -# -o tmp_host_singbox/sing-box.tar.gz "$url"
+        tar -xzf tmp_host_singbox/sing-box.tar.gz -C tmp_host_singbox
+        mv "tmp_host_singbox/${filename}/sing-box" "$HOST_BIN_DIR/sing-box"
+        rm -rf tmp_host_singbox
+    fi
 }
 
-download_naive
-download_singbox
-download_host_naive
+# Execute build and download functions explicitly
+build_singbox_openwrt
 download_host_singbox
 
-chmod +x "$BIN_DIR/naive" "$BIN_DIR/sing-box"
-[[ -f "$HOST_BIN_DIR/naive" ]] && chmod +x "$HOST_BIN_DIR/naive"
+chmod +x "$BIN_DIR/sing-box"
 [[ -f "$HOST_BIN_DIR/sing-box" ]] && chmod +x "$HOST_BIN_DIR/sing-box"
 
 template_copy src/deploy.sh build/deploy.sh
 template_copy src/rc.local build/staging/etc/rc.local
-template_copy src/naive.json build/staging/etc/naive/config.json
-template_copy src/sing-box.json build/staging/etc/sing-box/config.json
 
-chmod 700 build/deploy.sh build/staging/etc/rc.local          
-chmod 600 build/staging/etc/naive/config.json build/staging/etc/sing-box/config.json
+echo -e "\nGenerating dynamic sing-box JSON config..."
+# Export variables to the environment so Python can securely pull them
+export THE_CLEAN_CF_IPS THE_SNI THE_UUID
+python3 src/generate_config.py
+
+chmod 700 build/deploy.sh build/staging/etc/rc.local
 
 echo -e "\nValidating configurations..."
 if [[ -f "$HOST_BIN_DIR/sing-box" ]]; then
-  "$HOST_BIN_DIR/sing-box" check -c build/staging/etc/sing-box/config.json
-  echo "[OK] sing-box configuration is valid."
+    "$HOST_BIN_DIR/sing-box" check -c build/staging/etc/sing-box/config.json
+    echo "[OK] sing-box configuration is valid."
 fi
 
-if [[ -f "$HOST_BIN_DIR/naive" ]]; then
-  # Create a temporary file to capture output
-  NAIVE_LOG=$(mktemp)
-  
-  # Redirect stdout and stderr to the log file
-  "$HOST_BIN_DIR/naive" build/staging/etc/naive/config.json > "$NAIVE_LOG" 2>&1 &
-  NAIVE_PID=$!
-  disown $NAIVE_PID # Stop bash from monitoring this job for a silent kill
-  sleep 2
-  
-  if kill -0 $NAIVE_PID 2>/dev/null; then
-    kill $NAIVE_PID 2>/dev/null
-    echo "[OK] NaiveProxy configuration is valid."
-  else
-    echo "[ERROR] NaiveProxy configuration is invalid! Output log below:"
-    echo "============================================================"
-    cat "$NAIVE_LOG"
-    echo "============================================================"
-    rm -f "$NAIVE_LOG"
-    exit 1
-  fi
-  
-  rm -f "$NAIVE_LOG"
+echo -e "\nPackaging sysupgrade archive natively..."
+# Force root ownership if using GNU tar (Linux), while preserving the exact './' OpenWrt path structure
+if tar --version 2>/dev/null | grep -q GNU; then
+    tar --owner=0 --group=0 -czf build/sysupgrade_backup.tgz -C build/staging .
+else
+    tar -czf build/sysupgrade_backup.tgz -C build/staging .
 fi
-
-tar -czf build/sysupgrade_backup.tgz -C build/staging .
 chmod 600 build/sysupgrade_backup.tgz
 
-echo -e "\n================================================================"
-echo "Deploy on your router with this commmand in another terminal:"
-echo "================================================================"
-echo "./build/deploy.sh"
-echo -e "================================================================"
-echo "Hit Crtl+C after the finish to end this script."
-echo "================================================================"
+# Start Python HTTP Server in the background serving the 'build' directory
+echo -e "\nStarting Python web server on port $PORT..."
+(cd build && python3 -m http.server "$PORT" >/dev/null 2>&1) &
+WEBSERVER_PID=$!
 
-http-server build -p "$PORT"
+# Ensure the webserver gets killed upon exit (even if the script errors out)
+trap "echo -e '\nStopping Python web server...'; kill $WEBSERVER_PID 2>/dev/null" EXIT
+
+sleep 2
+if [ "$RUN_DEPLOY" = true ]; then
+    echo -e "\n================================================================"
+    echo "Deploying on your router..."
+    echo -e "================================================================"
+    ./build/deploy.sh
+    echo -e "================================================================"
+    echo "[OK] Deployment successfully completed."
+else
+    echo -e "\n================================================================"
+    echo "Build complete. Skipping deployment due to --no-deploy flag."
+    echo "================================================================"
+fi
+
+exit 0
