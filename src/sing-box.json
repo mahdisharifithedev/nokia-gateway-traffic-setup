@@ -57,9 +57,9 @@
 	"outbounds": [
 		{
 			"outbounds": [],
-			"tolerance": 50,
+			"tolerance": 10,
 			"type": "urltest",
-			"interval": "30s",
+			"interval": "1m",
 			"tag": "template-urltest",
 			"url": "https://cp.cloudflare.com/generate_204"
 		},
@@ -73,9 +73,11 @@
 			"flow": "",
 			"tls": {
 				"enabled": true,
-				"server_name": "THE_SNI",
+				"fragment": true,
 				"min_version": "1.3",
 				"max_version": "1.3",
+				"record_fragment": true,
+				"server_name": "THE_SNI",
 				"utls": {
 					"enabled": true,
 					"fingerprint": "chrome"
