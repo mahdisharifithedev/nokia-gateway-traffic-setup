@@ -67,16 +67,17 @@
 			"type": "vless",
 			"tag": "out-proxy",
 			"server_port": 443,
+			"routing_mark": 202,
 			"server": "THE_CLEAN_CF_IP",
 			"tcp_fast_open": false,
 			"uuid": "THE_UUID",
 			"flow": "",
 			"tls": {
 				"enabled": true,
-				"fragment": true,
 				"min_version": "1.3",
 				"max_version": "1.3",
-				"record_fragment": true,
+				"spoof": "THE_FAKE_SNI",
+				"spoof_method": "wrong-sequence",
 				"server_name": "THE_SNI",
 				"utls": {
 					"enabled": true,
@@ -104,6 +105,7 @@
 		{
 			"type": "direct",
 			"tag": "direct",
+			"routing_mark": 202,
 			"tcp_fast_open": false,
 			"domain_resolver": {
 				"server": "dns-proxy",
@@ -150,8 +152,9 @@
 	"experimental": {
 		"cache_file": {
 			"enabled": true,
+			"store_dns": true,
 			"store_fakeip": true,
-			"path": "/tmp/sing-box-cache.db"
+			"path": "/data/sing-box-cache.db"
 		}
 	}
 }

@@ -17,10 +17,10 @@ import copy
 from pathlib import Path
 
 PORT = 8000
-SINGBOX_VERSION = "v1.13.13"
 HOST_BIN_DIR = "build/host"
 BIN_DIR = "build/staging/usr/bin"
 VARS_FILE = "build/user_vars.json"
+SINGBOX_VERSION = "v1.14.0-alpha.31"
 
 def get_local_ip():
     """Fetches the local IPv4 address."""
@@ -93,6 +93,10 @@ def load_or_prompt_vars():
             else:
                 vars_dict[key] = input(f"Enter {key}: ")
             needs_save = True
+
+    if 'THE_FAKE_SNI' not in vars_dict:
+        vars_dict['THE_FAKE_SNI'] = input("Enter THE_FAKE_SNI (leave blank to disable spoofing): ")
+        needs_save = True
 
     if needs_save:
         with open(VARS_FILE, 'w') as f:
@@ -187,6 +191,7 @@ def generate_config(vars_dict):
     ips = [ip.strip() for ip in vars_dict['THE_CLEAN_CF_IPS'].split(',') if ip.strip()]
     sni = vars_dict['THE_SNI']
     uuid = vars_dict['THE_UUID']
+    fake_sni = vars_dict.get('THE_FAKE_SNI', '').strip()
 
     outbounds = config.get('outbounds', [])
     vless_template = next((ob for ob in outbounds if ob.get('type') == 'vless' and ob.get('tag') == 'out-proxy'), None)
@@ -202,8 +207,15 @@ def generate_config(vars_dict):
             
             if 'uuid' in node: 
                 node['uuid'] = uuid
-            if 'tls' in node and 'server_name' in node['tls']:
-                node['tls']['server_name'] = sni
+            if 'tls' in node:
+                if 'server_name' in node['tls']:
+                    node['tls']['server_name'] = sni
+                if fake_sni:
+                    node['tls']['spoof'] = fake_sni
+                else:
+                    node['tls'].pop('spoof', None)
+                    node['tls'].pop('spoof_method', None)
+                    
             if 'transport' in node and 'headers' in node['transport'] and 'Host' in node['transport']['headers']:
                 node['transport']['headers']['Host'] = sni
                 
