@@ -20,7 +20,7 @@ PORT = 8000
 HOST_BIN_DIR = "build/host"
 BIN_DIR = "build/staging/usr/bin"
 VARS_FILE = "build/user_vars.json"
-SINGBOX_VERSION = "v1.14.0-alpha.31"
+SINGBOX_VERSION = "v1.14.0-alpha.37"
 
 def get_local_ip():
     """Fetches the local IPv4 address."""
