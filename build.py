@@ -20,7 +20,7 @@ PORT = 8000
 HOST_BIN_DIR = "build/host"
 BIN_DIR = "build/staging/usr/bin"
 VARS_FILE = "build/user_vars.json"
-SINGBOX_VERSION = "v1.14.0-alpha.37"
+SINGBOX_VERSION = "v1.14.0-alpha.38"
 
 def get_local_ip():
     """Fetches the local IPv4 address."""
@@ -261,6 +261,53 @@ def generate_config(vars_dict):
 
     print(f"\n[OK] Generated dynamic sing-box JSON configuration at {output_file}")
 
+def validate_singbox_config(sb_os, host_bin_dir, config_path):
+    """Validates the sing-box config, masking Linux-specific keys on non-Linux hosts."""
+    
+    def strip_linux_keys(obj):
+        """Recursively removes Linux-specific sing-box keys for cross-platform validation."""
+        if isinstance(obj, dict):
+            obj.pop('routing_mask', None)
+            obj.pop('routing_mark', None)
+            obj.pop('tproxy', None)
+            for v in obj.values():
+                strip_linux_keys(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                strip_linux_keys(item)
+
+    print("\nValidating configurations...")
+    val_config_path = f"{config_path}.test.json"
+    
+    try:
+        # Load the generated configuration
+        with open(config_path, 'r') as f:
+            config_data = json.load(f)
+            
+        # Strip unsupported keys if checking on macOS/BSD/Windows
+        if sb_os != 'linux':
+            strip_linux_keys(config_data)
+
+        # Write the temporary config for the checker
+        with open(val_config_path, 'w') as f:
+            json.dump(config_data, f)
+
+        # Run the check
+        val_proc = subprocess.run(
+            [os.path.join(host_bin_dir, "sing-box"), "check", "-c", val_config_path],
+            capture_output=True, text=True
+        )
+
+        if val_proc.returncode == 0:
+            print("[OK] sing-box configuration is valid.")
+        else:
+            print(f"Error: Invalid sing-box configuration!\n{val_proc.stderr}", file=sys.stderr)
+            sys.exit(1)
+            
+    finally:
+        # Clean up the test file securely
+        if os.path.exists(val_config_path):
+            os.remove(val_config_path)
 
 def main():
     run_deploy = "--no-deploy" not in sys.argv
@@ -289,16 +336,7 @@ def main():
 
     generate_config(vars_dict)
 
-    print("\nValidating configurations...")
-    val_proc = subprocess.run(
-        [os.path.join(HOST_BIN_DIR, "sing-box"), "check", "-c", "build/staging/etc/sing-box/config.json"],
-        capture_output=True, text=True
-    )
-    if val_proc.returncode == 0:
-        print("[OK] sing-box configuration is valid.")
-    else:
-        print(f"Error: Invalid sing-box configuration!\n{val_proc.stderr}", file=sys.stderr)
-        sys.exit(1)
+    validate_singbox_config(sb_os, HOST_BIN_DIR, "build/staging/etc/sing-box/config.json")
 
     def reset_tar_info(tarinfo):
         tarinfo.uid = tarinfo.gid = 0
