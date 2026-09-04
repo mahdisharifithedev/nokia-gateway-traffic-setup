@@ -6,20 +6,30 @@
 	"dns": {
 		"servers": [
 			{
+				"type": "https",
 				"tag": "dns-proxy",
-				"type": "tcp",
-				"server": "1.1.1.1",
+				"server": "8.8.8.8",
+				"path": "/dns-query",
 				"detour": "out-proxy"
+			},
+			{
+				"tag": "dns-direct",
+				"type": "udp",
+				"server": "8.8.8.8",
+				"detour": "direct"
 			},
 			{
 				"tag": "dns-fakeip",
 				"type": "fakeip",
 				"inet4_range": "198.18.0.0/15",
-				"inet6_range": "fc00::/18"
+				"inet6_range": "2001:db8::/32"
 			}
 		],
 		"rules": [
 			{
+				"inbound": [
+					"in-tun"
+				],
 				"query_type": [
 					"A",
 					"AAAA"
@@ -31,6 +41,7 @@
 	},
 	"inbounds": [
 		{
+			"mtu": 1280,
 			"type": "tun",
 			"tag": "in-tun",
 			"interface_name": "tun0",
@@ -76,30 +87,28 @@
 				"enabled": true,
 				"min_version": "1.3",
 				"max_version": "1.3",
+				"server_name": "THE_SNI",
 				"spoof": "THE_FAKE_SNI",
 				"spoof_method": "wrong-sequence",
-				"server_name": "THE_SNI",
 				"utls": {
 					"enabled": true,
 					"fingerprint": "chrome"
 				}
 			},
+			"domain_resolver": {
+				"server": "dns-direct",
+				"strategy": "prefer_ipv6"
+			},
 			"transport": {
-				"type": "ws",
-				"path": "/fetch-all",
-				"headers": {
-					"Host": "THE_SNI"
-				}
+				"host": "THE_SNI",
+				"type": "httpupgrade",
+				"path": "/mcp/gpt/httpupgrade"
 			},
 			"multiplex": {
 				"enabled": true,
 				"padding": false,
 				"protocol": "smux",
 				"max_connections": 8
-			},
-			"domain_resolver": {
-				"server": "dns-proxy",
-				"strategy": "prefer_ipv6"
 			}
 		},
 		{
@@ -108,8 +117,8 @@
 			"routing_mark": 202,
 			"tcp_fast_open": false,
 			"domain_resolver": {
-				"server": "dns-proxy",
-				"strategy": "ipv4_only"
+				"server": "dns-direct",
+				"strategy": "prefer_ipv6"
 			}
 		}
 	],
@@ -127,8 +136,7 @@
 					"192.168.0.0/16",
 					"10.0.0.0/8",
 					"172.16.0.0/12",
-					"85.15.1.14/32",
-					"THE_CLEAN_CF_IP/32"
+					"85.15.1.14/32"
 				],
 				"outbound": "direct"
 			},
@@ -136,6 +144,13 @@
 				"inbound": [
 					"in-direct-socks",
 					"in-direct-http"
+				],
+				"outbound": "direct"
+			},
+			{
+				"port": [
+					67,
+					68
 				],
 				"outbound": "direct"
 			},

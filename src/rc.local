@@ -11,8 +11,8 @@ uci commit firewall
 sysctl -w net.ipv4.tcp_fastopen=0
 sysctl -w net.core.default_qdisc=fq_codel
 sysctl -w net.ipv4.tcp_slow_start_after_idle=0
-sysctl -w net.ipv4.tcp_rmem="4096 87380 4194304"
-sysctl -w net.ipv4.tcp_wmem="4096 16384 2097152"
+sysctl -w net.ipv4.tcp_rmem="4096 87380 2097152"
+sysctl -w net.ipv4.tcp_wmem="4096 65536 2097152"
 
 find /data/sing-box-cache.db -type f -size +131072k -exec rm -f {} \; 2>/dev/null
 

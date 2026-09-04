@@ -20,7 +20,7 @@ PORT = 8000
 HOST_BIN_DIR = "build/host"
 BIN_DIR = "build/staging/usr/bin"
 VARS_FILE = "build/user_vars.json"
-SINGBOX_VERSION = "v1.14.0-alpha.38"
+SINGBOX_VERSION = "v1.14.3"
 
 def get_local_ip():
     """Fetches the local IPv4 address."""
@@ -96,6 +96,10 @@ def load_or_prompt_vars():
 
     if 'THE_FAKE_SNI' not in vars_dict:
         vars_dict['THE_FAKE_SNI'] = input("Enter THE_FAKE_SNI (leave blank to disable spoofing): ")
+        needs_save = True
+        
+    if 'DIRECT_CIDRS' not in vars_dict:
+        vars_dict['DIRECT_CIDRS'] = input("Enter DIRECT_CIDRS (comma-separated, leave blank if none): ")
         needs_save = True
 
     if needs_save:
@@ -219,6 +223,9 @@ def generate_config(vars_dict):
             if 'transport' in node and 'headers' in node['transport'] and 'Host' in node['transport']['headers']:
                 node['transport']['headers']['Host'] = sni
                 
+            if 'transport' in node and 'host' in node['transport']:
+                            node['transport']['host'] = sni
+                
             return node
 
         if len(ips) == 1:
@@ -248,12 +255,16 @@ def generate_config(vars_dict):
                 if rule.get('outbound') == 'out-proxy':
                     rule['outbound'] = 'urltest'
 
+    direct_cidrs = [cidr.strip() for cidr in vars_dict.get('DIRECT_CIDRS', '').split(',') if cidr.strip()]
+
     rules = config.get('route', {}).get('rules', [])
     for rule in rules:
-        if 'ip_cidr' in rule and isinstance(rule['ip_cidr'], list):
-            if 'THE_CLEAN_CF_IP/32' in rule['ip_cidr']:
-                rule['ip_cidr'].remove('THE_CLEAN_CF_IP/32')
-                rule['ip_cidr'].extend([f"{ip}/32" for ip in ips])
+        if 'ip_cidr' in rule and isinstance(rule['ip_cidr'], list):                
+            if rule.get('outbound') == 'direct' and direct_cidrs:
+                # Extend the list, avoiding duplicates just in case
+                for cidr in direct_cidrs:
+                    if cidr not in rule['ip_cidr']:
+                        rule['ip_cidr'].append(cidr)
 
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     with open(output_file, 'w') as f:
