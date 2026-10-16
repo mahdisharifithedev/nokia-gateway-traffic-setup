@@ -43,7 +43,7 @@ python3 build.py
 ### 3. Enter Configuration Variables
 On the first run, the script will securely prompt you for your network variables (these will be saved locally to build/user_vars.json with a UNIX 600 permission):
 
-- `THE_CLEAN_CF_IPS`: A comma-separated list of destination IPs.
+- `SERVER_IP`: A comma-separated list of destination IPs.
 - `THE_SNI`: Your Server Name Indication target.
 - `THE_UUID`: Your VLESS UUID.
 - `THE_FAKE_SNI`: (Optional) Custom SNI payload for traffic testing.

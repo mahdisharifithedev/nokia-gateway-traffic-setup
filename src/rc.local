@@ -4,41 +4,37 @@
 cp /data/sysupgrade_backup.tgz /data/sysupgrade.tgz
 sleep 20
 
+# Enable Software Flow Offloading and apply before starting sing-box
 uci set firewall.@defaults[0].flow_offloading='1'
 uci set firewall.@defaults[0].flow_offloading_hw='0'
 uci commit firewall
+/etc/init.d/firewall reload
 
+# Kernel TCP & Queue tuning for 100 Mbps 4G LTE
 sysctl -w net.ipv4.tcp_fastopen=0
 sysctl -w net.core.default_qdisc=fq_codel
 sysctl -w net.ipv4.tcp_slow_start_after_idle=0
-sysctl -w net.ipv4.tcp_rmem="4096 87380 2097152"
-sysctl -w net.ipv4.tcp_wmem="4096 65536 2097152"
+sysctl -w net.ipv4.tcp_mtu_probing=1
+sysctl -w net.core.netdev_max_backlog=4096
+sysctl -w net.ipv4.tcp_rmem="4096 131072 4194304"
+sysctl -w net.ipv4.tcp_wmem="4096 131072 4194304"
 
+# Clean cache if larger than 128MB
 find /data/sing-box-cache.db -type f -size +131072k -exec rm -f {} \; 2>/dev/null
 
+# Start sing-box
 /usr/bin/sing-box run -c /etc/sing-box/config.json &
 
 sleep 10
 
+# Ensure traffic forwarding across tun0 is accepted
 iptables -I FORWARD -o tun0 -j ACCEPT
 iptables -I FORWARD -i tun0 -j ACCEPT
 ip6tables -I FORWARD -o tun0 -j ACCEPT
 ip6tables -I FORWARD -i tun0 -j ACCEPT
 
-# Save the 202 mark from proxy connections to the conntrack entry
-iptables -t mangle -I POSTROUTING -p tcp --dport 443 -m mark --mark 202 -j CONNMARK --save-mark
-ip6tables -t mangle -I POSTROUTING -p tcp --dport 443 -m mark --mark 202 -j CONNMARK --save-mark
-
-# Restore the 202 mark to the raw packet (which conntrack sees as ESTABLISHED)
-iptables -t mangle -I OUTPUT -p tcp --dport 443 -m conntrack --ctstate ESTABLISHED -j CONNMARK --restore-mark
-ip6tables -t mangle -I OUTPUT -p tcp --dport 443 -m conntrack --ctstate ESTABLISHED -j CONNMARK --restore-mark
-
-# Fallback: If a spoofed packet is too far out-of-window and IS classified as INVALID, manually mark it
-iptables -t mangle -I OUTPUT -p tcp --dport 443 -m conntrack --ctstate INVALID -j MARK --set-mark 202
-ip6tables -t mangle -I OUTPUT -p tcp --dport 443 -m conntrack --ctstate INVALID -j MARK --set-mark 202
-
-# Accept the INVALID packets in the filter table so OpenWrt doesn't drop them
-iptables -I OUTPUT -p tcp --dport 443 -m conntrack --ctstate INVALID -j ACCEPT
-ip6tables -I OUTPUT -p tcp --dport 443 -m conntrack --ctstate INVALID -j ACCEPT
+# Clamp TCP MSS to PMTU on tun0 to prevent 4G packet fragmentation
+iptables -t mangle -I FORWARD -o tun0 -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+ip6tables -t mangle -I FORWARD -o tun0 -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
 exit 0

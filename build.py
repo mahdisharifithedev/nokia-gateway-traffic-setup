@@ -77,7 +77,7 @@ def load_or_prompt_vars():
             pass
             
     required_keys = [
-        ('THE_CLEAN_CF_IPS', False),
+        ('SERVER_IP', False),
         ('THE_SNI', False),
         ('THE_UUID', False),
         ('SSH_USER_NAME', False),
@@ -93,10 +93,6 @@ def load_or_prompt_vars():
             else:
                 vars_dict[key] = input(f"Enter {key}: ")
             needs_save = True
-
-    if 'THE_FAKE_SNI' not in vars_dict:
-        vars_dict['THE_FAKE_SNI'] = input("Enter THE_FAKE_SNI (leave blank to disable spoofing): ")
-        needs_save = True
         
     if 'DIRECT_CIDRS' not in vars_dict:
         vars_dict['DIRECT_CIDRS'] = input("Enter DIRECT_CIDRS (comma-separated, leave blank if none): ")
@@ -121,7 +117,7 @@ def template_copy(src, dest, replacements):
 def make_executable(path):
     """Cross-platform equivalent of chmod +x"""
     mode = os.stat(path).st_mode
-    mode |= (mode & 0o444) >> 2    # copy R bits to X
+    mode |= (mode & 0o444) >> 2
     os.chmod(path, mode)
 
 
@@ -192,89 +188,38 @@ def generate_config(vars_dict):
     with open(input_file, 'r') as f:
         config = json.load(f)
 
-    ips = [ip.strip() for ip in vars_dict['THE_CLEAN_CF_IPS'].split(',') if ip.strip()]
-    sni = vars_dict['THE_SNI']
-    uuid = vars_dict['THE_UUID']
-    fake_sni = vars_dict.get('THE_FAKE_SNI', '').strip()
+    # Use only the first IP if multiple were accidentally provided
+    ip = vars_dict['SERVER_IP'].split(',')[0].strip()
+    sni = vars_dict['THE_SNI'].strip()
+    uuid = vars_dict['THE_UUID'].strip()
 
     outbounds = config.get('outbounds', [])
-    vless_template = next((ob for ob in outbounds if ob.get('type') == 'vless' and ob.get('tag') == 'out-proxy'), None)
-    urltest_template = next((ob for ob in outbounds if ob.get('type') == 'urltest' and ob.get('tag') == 'template-urltest'), None)
-    
-    other_outbounds = [ob for ob in outbounds if ob != vless_template and ob != urltest_template]
-
-    if vless_template:
-        def populate_vless_node(node_template, ip_addr, tag_name):
-            node = copy.deepcopy(node_template)
-            node['tag'] = tag_name
-            node['server'] = ip_addr
-            
-            if 'uuid' in node: 
-                node['uuid'] = uuid
-            if 'tls' in node:
-                if 'server_name' in node['tls']:
-                    node['tls']['server_name'] = sni
-                if fake_sni:
-                    node['tls']['spoof'] = fake_sni
-                else:
-                    node['tls'].pop('spoof', None)
-                    node['tls'].pop('spoof_method', None)
-                    
-            if 'transport' in node and 'headers' in node['transport'] and 'Host' in node['transport']['headers']:
-                node['transport']['headers']['Host'] = sni
-                
-            if 'transport' in node and 'host' in node['transport']:
-                            node['transport']['host'] = sni
-                
-            return node
-
-        if len(ips) == 1:
-            # Single IP: Skip urltest, use VLESS directly as the main proxy
-            single_node = populate_vless_node(vless_template, ips[0], 'out-proxy')
-            config['outbounds'] = [single_node] + other_outbounds
-        elif len(ips) > 1 and urltest_template:
-            # Multiple IPs: Generate VLESS nodes and link them via the urltest template
-            vless_nodes = []
-            vless_tags = []
-            for i, ip in enumerate(ips):
-                tag = f"vless-cf-{i}"
-                vless_tags.append(tag)
-                vless_nodes.append(populate_vless_node(vless_template, ip, tag))
-
-            urltest = copy.deepcopy(urltest_template)
-            urltest['tag'] = 'urltest' # Assign a distinct, accurate tag
-            urltest['outbounds'] = vless_tags
-            
-            config['outbounds'] = [urltest] + vless_nodes + other_outbounds
-
-            for server in config.get('dns', {}).get('servers', []):
-                if server.get('detour') == 'out-proxy':
-                    server['detour'] = 'urltest'
-
-            for rule in config.get('route', {}).get('rules', []):
-                if rule.get('outbound') == 'out-proxy':
-                    rule['outbound'] = 'urltest'
+    for ob in outbounds:
+        if ob.get('type') == 'vless' and ob.get('tag') == 'out-proxy':
+            ob['server'] = sni
+            ob['uuid'] = uuid
+            if 'tls' in ob:
+                ob['tls']['server_name'] = sni
+            break # Found and updated the proxy outbound
 
     direct_cidrs = [cidr.strip() for cidr in vars_dict.get('DIRECT_CIDRS', '').split(',') if cidr.strip()]
-
-    rules = config.get('route', {}).get('rules', [])
-    for rule in rules:
-        if 'ip_cidr' in rule and isinstance(rule['ip_cidr'], list):                
-            if rule.get('outbound') == 'direct' and direct_cidrs:
-                # Extend the list, avoiding duplicates just in case
-                for cidr in direct_cidrs:
-                    if cidr not in rule['ip_cidr']:
-                        rule['ip_cidr'].append(cidr)
+    if direct_cidrs:
+        rules = config.get('route', {}).get('rules', [])
+        for rule in rules:
+            if 'ip_cidr' in rule and isinstance(rule['ip_cidr'], list):                
+                if rule.get('outbound') == 'direct':
+                    for cidr in direct_cidrs:
+                        if cidr not in rule['ip_cidr']:
+                            rule['ip_cidr'].append(cidr)
 
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     with open(output_file, 'w') as f:
         json.dump(config, f, indent=4)
 
-    print(f"\n[OK] Generated dynamic sing-box JSON configuration at {output_file}")
+    print(f"\n[OK] Generated static sing-box JSON configuration at {output_file}")
 
 def validate_singbox_config(sb_os, host_bin_dir, config_path):
     """Validates the sing-box config, masking Linux-specific keys on non-Linux hosts."""
-    
     def strip_linux_keys(obj):
         """Recursively removes Linux-specific sing-box keys for cross-platform validation."""
         if isinstance(obj, dict):
@@ -291,19 +236,15 @@ def validate_singbox_config(sb_os, host_bin_dir, config_path):
     val_config_path = f"{config_path}.test.json"
     
     try:
-        # Load the generated configuration
         with open(config_path, 'r') as f:
             config_data = json.load(f)
             
-        # Strip unsupported keys if checking on macOS/BSD/Windows
         if sb_os != 'linux':
             strip_linux_keys(config_data)
 
-        # Write the temporary config for the checker
         with open(val_config_path, 'w') as f:
             json.dump(config_data, f)
 
-        # Run the check
         val_proc = subprocess.run(
             [os.path.join(host_bin_dir, "sing-box"), "check", "-c", val_config_path],
             capture_output=True, text=True
@@ -316,7 +257,6 @@ def validate_singbox_config(sb_os, host_bin_dir, config_path):
             sys.exit(1)
             
     finally:
-        # Clean up the test file securely
         if os.path.exists(val_config_path):
             os.remove(val_config_path)
 
@@ -368,9 +308,9 @@ def main():
 
     print(f"\nStarting Python web server on port {PORT}...")
     class SilentHandler(http.server.SimpleHTTPRequestHandler):
-        def log_message(self, format, *args): pass # Silence HTTP logs
+        def log_message(self, format, *args): pass
         
-    os.chdir("build") # Serve from 'build' directory
+    os.chdir("build")
     httpd = socketserver.TCPServer(("", PORT), SilentHandler)
     httpd.allow_reuse_address = True
     
