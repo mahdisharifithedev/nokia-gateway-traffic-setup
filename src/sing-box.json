@@ -100,15 +100,15 @@
 				"strategy": "prefer_ipv6"
 			},
 			"transport": {
-				"host": "THE_SNI",
-				"type": "httpupgrade",
-				"path": "/mcp/gpt/httpupgrade"
+				"type": "ws",
+				"path": "/mcp/gpt/ws",
+				"headers": {
+					"Host": "THE_SNI"
+				}
 			},
 			"multiplex": {
-				"enabled": true,
-				"padding": false,
-				"protocol": "smux",
-				"max_connections": 8
+				"enabled": false,
+				"padding": false
 			}
 		},
 		{

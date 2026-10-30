@@ -1,0 +1,24 @@
+# This file is interpreted as shell script.
+# Put your custom iptables rules here, they will
+# be executed with each firewall (re-)start.
+
+add_rule() {
+    _cmd="$1"
+    _tbl="$2"
+    shift 2
+    "$_cmd" -t "$_tbl" -C "$@" 2>/dev/null || "$_cmd" -t "$_tbl" -I "$@"
+}
+
+for ipt in iptables ip6tables; do
+    # Allow LAN <-> tun0 forwarding
+    add_rule "$ipt" filter FORWARD -o tun0 -j ACCEPT
+    add_rule "$ipt" filter FORWARD -i tun0 -j ACCEPT
+
+    # Mark raw out-of-window spoofed packets with 202 so they bypass tun0
+    add_rule "$ipt" mangle OUTPUT -p tcp --dport 443 -m conntrack --ctstate INVALID -j MARK --set-mark 202
+
+    # Ensure filter table does not drop the INVALID spoofed packet
+    add_rule "$ipt" filter OUTPUT -p tcp --dport 443 -m conntrack --ctstate INVALID -j ACCEPT
+done
+
+unset _cmd _tbl ipt

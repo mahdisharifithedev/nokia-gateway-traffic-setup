@@ -20,7 +20,7 @@ PORT = 8000
 HOST_BIN_DIR = "build/host"
 BIN_DIR = "build/staging/usr/bin"
 VARS_FILE = "build/user_vars.json"
-SINGBOX_VERSION = "v1.14.3"
+SINGBOX_VERSION = "v1.14.4"
 
 def get_local_ip():
     """Fetches the local IPv4 address."""
@@ -342,8 +342,10 @@ def main():
     
     template_copy('src/deploy.sh', 'build/deploy.sh', replacements)
     template_copy('src/rc.local', 'build/staging/etc/rc.local', replacements)
+    template_copy('src/firewall.user', 'build/staging/etc/firewall.user', replacements)
     make_executable('build/deploy.sh')
     make_executable('build/staging/etc/rc.local')
+    make_executable('build/staging/etc/firewall.user')
 
     generate_config(vars_dict)
 
